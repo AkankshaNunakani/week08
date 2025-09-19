@@ -1,48 +1,51 @@
-name: Backend CI - Test, Build and Push Images to ACR
+name: Backend CD - Deploy to AKS
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
+    inputs:
+      tag:
+        description: "Image tag to deploy (default = last commit SHA)"
+        required: false
+  workflow_run:
+    workflows: [ "Backend CI - Test, Build and Push Images to ACR" ]
+    types: [ "completed" ]
 
 jobs:
-  test_build_push:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
-      ACR_NAME: ${{ secrets.ACR_NAME }}
-      TAG: ${{ github.sha }}
+      ACR_LOGIN_SERVER: s722acr84438.azurecr.io
+      NAMESPACE: default
+      ORDER_DEPLOY: order-service-w08e1
+      PRODUCT_DEPLOY: product-service-w08e1
+      ORDER_CONTAINER: order-service-container
+      PRODUCT_CONTAINER: product-service-container
+      TAG: ${{ github.event.inputs.tag || github.sha }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login (service principal JSON)
+      - name: Azure login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Find Dockerfiles
-        id: find
-        run: |
-          set -e
-          ORDER_DF=$(git ls-files | grep -iE '/order[^/]*/Dockerfile$'  | head -n1)
-          PROD_DF=$(git ls-files  | grep -iE '/product[^/]*/Dockerfile$' | head -n1)
-          [ -n "$ORDER_DF" ] && [ -n "$PROD_DF" ] || { echo "Dockerfiles not found"; exit 1; }
-          echo "order=$ORDER_DF"  >> $GITHUB_OUTPUT
-          echo "product=$PROD_DF" >> $GITHUB_OUTPUT
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.AKS_RG }}         # e.g. sit722-week08-rg
+          cluster-name:  ${{ secrets.AKS_NAME }}        # your AKS cluster name
 
-      - name: Build & push order-service
+      - name: Update images
         run: |
-          az acr build -r "$ACR_NAME" \
-            -t week08/order-service:${TAG} \
-            -f "${{ steps.find.outputs.order }}" \
-            "$(dirname "${{ steps.find.outputs.order }}")"
+          kubectl set image -n "$NAMESPACE" deploy/$ORDER_DEPLOY   $ORDER_CONTAINER=$ACR_LOGIN_SERVER/week08/order-service:$TAG
+          kubectl set image -n "$NAMESPACE" deploy/$PRODUCT_DEPLOY $PRODUCT_CONTAINER=$ACR_LOGIN_SERVER/week08/product-service:$TAG
 
-      - name: Build & push product-service
+      - name: Wait for rollout
         run: |
-          az acr build -r "$ACR_NAME" \
-            -t week08/product-service:${TAG} \
-            -f "${{ steps.find.outputs.product }}" \
-            "$(dirname "${{ steps.find.outputs.product }}")"
+          kubectl rollout status -n "$NAMESPACE" deploy/$ORDER_DEPLOY
+          kubectl rollout status -n "$NAMESPACE" deploy/$PRODUCT_DEPLOY
 
-      - name: Show image URIs
+      - name: Show deployed images
         run: |
-          echo "s722acr84438.azurecr.io/week08/order-service:${TAG}"
-          echo "s722acr84438.azurecr.io/week08/product-service:${TAG}"
+          kubectl get deploy -n "$NAMESPACE" -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas
