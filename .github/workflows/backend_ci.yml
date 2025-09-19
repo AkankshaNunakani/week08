@@ -1,4 +1,5 @@
 name: Backend CI - Test, Build and Push Images to ACR
+
 on:
   workflow_dispatch:
   push:
@@ -8,29 +9,33 @@ jobs:
   test_build_push:
     runs-on: ubuntu-latest
     env:
-      ACR_NAME: s722acr84438                 # hardcoded to avoid secret typos
+      # Hardcode your ACR so a missing/typo'd secret can't break the job
+      ACR_NAME: s722acr84438
       ACR_LOGIN_SERVER: s722acr84438.azurecr.io
       TAG: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login (service principal JSON)
+      # LOGIN WITH YOUR SP JSON (the single secret AZURE_CREDENTIALS)
+      - name: Azure login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Locate Dockerfiles (order/product)
+      # Find the two Dockerfiles (order & product)
+      - name: Locate Dockerfiles
         id: detect
         shell: bash
         run: |
           set -e
-          ORDER_DF=$(find . -type f -iname Dockerfile -path '*order*' | head -n1)
-          PROD_DF=$(find  . -type f -iname Dockerfile -path '*product*' | head -n1)
+          ORDER_DF=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
+          PROD_DF=$( find . -type f -iname Dockerfile -path '*product*' | head -n1)
           [ -n "$ORDER_DF" ] && [ -n "$PROD_DF" ] || { echo "Dockerfiles not found"; exit 1; }
           echo "order=$ORDER_DF"  >> "$GITHUB_OUTPUT"
           echo "product=$PROD_DF" >> "$GITHUB_OUTPUT"
 
+      # Build & push directly to ACR (no docker creds needed on runner)
       - name: Build & push order-service
         run: |
           az acr build -r "$ACR_NAME" \
@@ -45,7 +50,7 @@ jobs:
             -f "${{ steps.detect.outputs.product }}" \
             "$(dirname "${{ steps.detect.outputs.product }}")"
 
-      - name: Output image URIs
+      - name: Show image URIs
         run: |
           echo "$ACR_LOGIN_SERVER/week08/order-service:${TAG}"
           echo "$ACR_LOGIN_SERVER/week08/product-service:${TAG}"
