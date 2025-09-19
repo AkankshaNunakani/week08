@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to deploy (default = last commit SHA)"
+        description: "Image tag to deploy (defaults to CI run SHA)"
         required: false
   workflow_run:
     workflows: [ "Backend CI - Test, Build and Push Images to ACR" ]
@@ -20,7 +20,8 @@ jobs:
       PRODUCT_DEPLOY: product-service-w08e1
       ORDER_CONTAINER: order-service-container
       PRODUCT_CONTAINER: product-service-container
-      TAG: ${{ github.event.inputs.tag || github.sha }}
+      # Use workflow_dispatch input if provided, otherwise the CI run's SHA
+      TAG: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.event.workflow_run.head_sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -33,11 +34,12 @@ jobs:
       - name: Set AKS context
         uses: azure/aks-set-context@v3
         with:
-          resource-group: ${{ secrets.AKS_RG }}         # e.g. sit722-week08-rg
-          cluster-name:  ${{ secrets.AKS_NAME }}        # your AKS cluster name
+          resource-group: ${{ secrets.AKS_RG }}
+          cluster-name:  ${{ secrets.AKS_NAME }}
 
-      - name: Update images
+      - name: Deploy images
         run: |
+          set -e
           kubectl set image -n "$NAMESPACE" deploy/$ORDER_DEPLOY   $ORDER_CONTAINER=$ACR_LOGIN_SERVER/week08/order-service:$TAG
           kubectl set image -n "$NAMESPACE" deploy/$PRODUCT_DEPLOY $PRODUCT_CONTAINER=$ACR_LOGIN_SERVER/week08/product-service:$TAG
 
@@ -48,4 +50,5 @@ jobs:
 
       - name: Show deployed images
         run: |
-          kubectl get deploy -n "$NAMESPACE" -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas
+          kubectl get deploy -n "$NAMESPACE" \
+            -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas
