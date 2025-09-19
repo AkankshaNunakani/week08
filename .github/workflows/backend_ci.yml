@@ -1,42 +1,15 @@
-name: Backend CI - Test, Build and Push Images to ACR
-on:
-  workflow_dispatch:
-  push:
-    branches: [ "main" ]
+# make a safety branch
+git switch -c fix-workflows
 
-jobs:
-  test_build_push:
-    runs-on: ubuntu-latest
-    env:
-      ACR_NAME: s722acr84438           # <- hardcoded so we don't depend on a secret
-      TAG: ${{ github.sha }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Azure login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+# restore backend_cd.yml from the commit before your change
+git log -- .github/workflows/backend_cd.yml
+# copy the SHA just BEFORE your edit, then:
+git checkout <GOOD_SHA> -- .github/workflows/backend_cd.yml
 
-      - name: Find Dockerfiles
-        id: find
-        run: |
-          set -e
-          ORDER_DF=$(git ls-files | grep -iE '/order[^/]*/Dockerfile$'  | head -n1)
-          PROD_DF=$(git ls-files  | grep -iE '/product[^/]*/Dockerfile$' | head -n1)
-          [ -n "$ORDER_DF" ] && [ -n "$PROD_DF" ] || { echo "Dockerfiles not found"; exit 1; }
-          echo "order=$ORDER_DF"  >> $GITHUB_OUTPUT
-          echo "product=$PROD_DF" >> $GITHUB_OUTPUT
+# ensure CI file exists with your CI content
+# (open editor and paste; or if it already exists, skip)
+notepad .github/workflows/backend_ci.yml
 
-      - name: Build & push order-service
-        run: |
-          az acr build -r "$ACR_NAME" \
-            -t week08/order-service:${TAG} \
-            -f "${{ steps.find.outputs.order }}" \
-            "$(dirname "${{ steps.find.outputs.order }}")"
-
-      - name: Build & push product-service
-        run: |
-          az acr build -r "$ACR_NAME" \
-            -t week08/product-service:${TAG} \
-            -f "${{ steps.find.outputs.product }}" \
-            "$(dirname "${{ steps.find.outputs.product }}")"
+git add .github/workflows/backend_cd.yml .github/workflows/backend_ci.yml
+git commit -m "Restore backend_cd.yml and place CI workflow in backend_ci.yml"
+git push -u origin fix-workflows
