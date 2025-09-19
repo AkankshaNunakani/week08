@@ -1,15 +1,51 @@
-# make a safety branch
-git switch -c fix-workflows
+name: Backend CI - Test, Build and Push Images to ACR
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
-# restore backend_cd.yml from the commit before your change
-git log -- .github/workflows/backend_cd.yml
-# copy the SHA just BEFORE your edit, then:
-git checkout <GOOD_SHA> -- .github/workflows/backend_cd.yml
+jobs:
+  test_build_push:
+    runs-on: ubuntu-latest
+    env:
+      ACR_NAME: s722acr84438                 # hardcoded to avoid secret typos
+      ACR_LOGIN_SERVER: s722acr84438.azurecr.io
+      TAG: ${{ github.sha }}
 
-# ensure CI file exists with your CI content
-# (open editor and paste; or if it already exists, skip)
-notepad .github/workflows/backend_ci.yml
+    steps:
+      - uses: actions/checkout@v4
 
-git add .github/workflows/backend_cd.yml .github/workflows/backend_ci.yml
-git commit -m "Restore backend_cd.yml and place CI workflow in backend_ci.yml"
-git push -u origin fix-workflows
+      - name: Azure login (service principal JSON)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Locate Dockerfiles (order/product)
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          ORDER_DF=$(find . -type f -iname Dockerfile -path '*order*' | head -n1)
+          PROD_DF=$(find  . -type f -iname Dockerfile -path '*product*' | head -n1)
+          [ -n "$ORDER_DF" ] && [ -n "$PROD_DF" ] || { echo "Dockerfiles not found"; exit 1; }
+          echo "order=$ORDER_DF"  >> "$GITHUB_OUTPUT"
+          echo "product=$PROD_DF" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push order-service
+        run: |
+          az acr build -r "$ACR_NAME" \
+            -t week08/order-service:${TAG} \
+            -f "${{ steps.detect.outputs.order }}" \
+            "$(dirname "${{ steps.detect.outputs.order }}")"
+
+      - name: Build & push product-service
+        run: |
+          az acr build -r "$ACR_NAME" \
+            -t week08/product-service:${TAG} \
+            -f "${{ steps.detect.outputs.product }}" \
+            "$(dirname "${{ steps.detect.outputs.product }}")"
+
+      - name: Output image URIs
+        run: |
+          echo "$ACR_LOGIN_SERVER/week08/order-service:${TAG}"
+          echo "$ACR_LOGIN_SERVER/week08/product-service:${TAG}"
