@@ -1,4 +1,5 @@
 name: Backend CI - Test, Build and Push Images to ACR
+
 on:
   workflow_dispatch:
   push:
@@ -20,43 +21,30 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Resolve Dockerfile paths (robust)
-        id: paths
+      - name: Locate Dockerfiles (order & product)
+        id: detect
         shell: bash
         run: |
           set -e
-          # Preferred locations
-          C1="backend/order-service/Dockerfile"
-          C2="backend/product-service/Dockerfile"
-
-          # Fallbacks if the preferred ones don't exist
-          if [[ ! -f "$C1" ]]; then
-            C1=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
-          fi
-          if [[ ! -f "$C2" ]]; then
-            C2=$(find . -type f -iname Dockerfile -path '*product*' | head -n1)
-          fi
-
-          echo "ORDER_DF=$C1"
-          echo "PRODUCT_DF=$C2"
-          [[ -n "$C1" && -f "$C1" && -n "$C2" && -f "$C2" ]] || { echo "Dockerfiles not found"; exit 1; }
-
-          echo "order=$C1"  >> "$GITHUB_OUTPUT"
-          echo "product=$C2" >> "$GITHUB_OUTPUT"
+          ORDER_DF=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
+          PROD_DF=$( find . -type f -iname Dockerfile -path '*product*' | head -n1)
+          [ -n "$ORDER_DF" ] && [ -n "$PROD_DF" ] || { echo "Dockerfiles not found"; exit 1; }
+          echo "order=$ORDER_DF"  >> "$GITHUB_OUTPUT"
+          echo "product=$PROD_DF" >> "$GITHUB_OUTPUT"
 
       - name: Build & push order-service
         run: |
           az acr build -r "$ACR_NAME" \
             -t week08/order-service:${TAG} \
-            -f "${{ steps.paths.outputs.order }}" \
-            "$(dirname "${{ steps.paths.outputs.order }}")"
+            -f "${{ steps.detect.outputs.order }}" \
+            "$(dirname "${{ steps.detect.outputs.order }}")"
 
       - name: Build & push product-service
         run: |
           az acr build -r "$ACR_NAME" \
             -t week08/product-service:${TAG} \
-            -f "${{ steps.paths.outputs.product }}" \
-            "$(dirname "${{ steps.paths.outputs.product }}")"
+            -f "${{ steps.detect.outputs.product }}" \
+            "$(dirname "${{ steps.detect.outputs.product }}")"
 
       - name: Output image URIs
         run: |
