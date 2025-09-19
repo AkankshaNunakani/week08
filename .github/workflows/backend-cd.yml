@@ -1,16 +1,20 @@
 name: Backend CD - Deploy to AKS
+
 on:
+  # Manual trigger with optional tag override
   workflow_dispatch:
     inputs:
       tag:
         description: "Image tag to deploy (defaults to CI run SHA)"
         required: false
+  # Auto-trigger after CI succeeds
   workflow_run:
     workflows: [ "Backend CI - Test, Build and Push Images to ACR" ]
     types: [ "completed" ]
 
 jobs:
   deploy:
+    # Only run if CI concluded success, or if manually dispatched
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
@@ -20,7 +24,7 @@ jobs:
       PRODUCT_DEPLOY: product-service-w08e1
       ORDER_CONTAINER: order-service-container
       PRODUCT_CONTAINER: product-service-container
-      # Use workflow_dispatch input if provided, otherwise the CI run's SHA
+      # If manual input provided use it, otherwise use CI run SHA
       TAG: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.event.workflow_run.head_sha }}
 
     steps:
@@ -31,13 +35,14 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # Set AKS context (needs AKS_RG and AKS_NAME secrets)
       - name: Set AKS context
         uses: azure/aks-set-context@v3
         with:
           resource-group: ${{ secrets.AKS_RG }}
           cluster-name:  ${{ secrets.AKS_NAME }}
 
-      - name: Deploy images
+      - name: Update images
         run: |
           set -e
           kubectl set image -n "$NAMESPACE" deploy/$ORDER_DEPLOY   $ORDER_CONTAINER=$ACR_LOGIN_SERVER/week08/order-service:$TAG
