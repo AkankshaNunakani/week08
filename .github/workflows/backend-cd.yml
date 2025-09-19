@@ -14,7 +14,6 @@ on:
 
 jobs:
   deploy:
-    # Only run if CI concluded success, or if manually dispatched
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
@@ -24,7 +23,6 @@ jobs:
       PRODUCT_DEPLOY: product-service-w08e1
       ORDER_CONTAINER: order-service-container
       PRODUCT_CONTAINER: product-service-container
-      # If manual input provided use it, otherwise use CI run SHA
       TAG: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.event.workflow_run.head_sha }}
 
     steps:
@@ -35,12 +33,11 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Set AKS context (needs AKS_RG and AKS_NAME secrets)
       - name: Set AKS context
         uses: azure/aks-set-context@v3
         with:
-          resource-group: ${{ secrets.AKS_RG }}
-          cluster-name:  ${{ secrets.AKS_NAME }}
+          resource-group: ${{ secrets.AKS_RG }}   # e.g. sit722-week08-rg
+          cluster-name:  ${{ secrets.AKS_NAME }}  # e.g. sit722-aks-wk08
 
       - name: Update images
         run: |
