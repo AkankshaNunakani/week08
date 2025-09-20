@@ -15,7 +15,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-
     env:
       ACR_LOGIN_SERVER: s722acr84438.azurecr.io
       SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
