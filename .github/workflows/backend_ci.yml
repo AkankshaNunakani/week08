@@ -11,8 +11,8 @@ jobs:
     env:
       ACR_NAME: s722acr84438
       ACR_LOGIN_SERVER: s722acr84438.azurecr.io
+      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
       TAG: ${{ github.sha }}
-      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5   # <-- your subscription
 
     steps:
       - uses: actions/checkout@v4
@@ -22,13 +22,10 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # >>> ADD THIS STEP <<<
-      - name: Set correct subscription (and verify ACR)
+      - name: Set subscription & verify ACR
         run: |
+          set -e
           az account set --subscription "$SUB_ID"
-          echo "Using subscription:"
-          az account show -o table
-          echo "Checking ACR exists:"
           az acr show -n "$ACR_NAME" -o table
 
       - name: Find Dockerfiles (order & product)
