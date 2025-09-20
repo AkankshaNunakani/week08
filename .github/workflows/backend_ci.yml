@@ -16,73 +16,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login (SP JSON)
+      - name: Azure login (service principal JSON)
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Debug Azure & ACR
-        run: |
-          set -e
-          az account show
-          az acr show -n "$ACR_NAME" -o table || true
 
       - name: Find Dockerfiles (order & product)
         id: detect
         shell: bash
         run: |
           set -e
-          echo "Listing Dockerfiles (up to depth 4):"
-          find . -maxdepth 4 -type f -iname Dockerfile -print | nl || true
+          ORDER=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
+          PROD=$( find . -type f -iname Dockerfile -path '*product*' | head -n1)
+          [[ -n "$ORDER" && -f "$ORDER" ]] || { echo "Order Dockerfile not found"; exit 1; }
+          [[ -n "$PROD"  && -f "$PROD"  ]] || { echo "Product Dockerfile not found"; exit 1; }
+          echo "order=$ORDER"  >> "$GITHUB_OUTPUT"
+          echo "product=$PROD" >> "$GITHUB_OUTPUT"
+          echo "Using ORDER=$ORDER"
+          echo "Using PRODUCT=$PROD"
 
-          ORDER_DF="backend/order-service/Dockerfile"
-          PROD_DF="backend/product-service/Dockerfile"
-
-          [[ -f "$ORDER_DF" ]] || ORDER_DF=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
-          [[ -f "$PROD_DF"  ]] ||  PROD_DF=$(find . -type f -iname Dockerfile -path '*product*' | head -n1)
-
-          echo "ORDER_DF=$ORDER_DF"
-          echo "PROD_DF=$PROD_DF"
-
-          [[ -n "$ORDER_DF" && -f "$ORDER_DF" ]] || { echo "::error::Order Dockerfile not found"; exit 1; }
-          [[ -n "$PROD_DF"  && -f "$PROD_DF"  ]] || { echo "::error::Product Dockerfile not found"; exit 1; }
-
-          echo "order=$ORDER_DF"  >> "$GITHUB_OUTPUT"
-          echo "product=$PROD_DF" >> "$GITHUB_OUTPUT"
-
-      - name: Build & push with ACR Tasks (preferred)
-        id: acrbuild
-        continue-on-error: true
+      - name: Build & push order-service to ACR
         run: |
-          set -e
           az acr build -r "$ACR_NAME" \
             -t week08/order-service:${TAG} \
             -f "${{ steps.detect.outputs.order }}" \
             "$(dirname "${{ steps.detect.outputs.order }}")"
 
+      - name: Build & push product-service to ACR
+        run: |
           az acr build -r "$ACR_NAME" \
             -t week08/product-service:${TAG} \
             -f "${{ steps.detect.outputs.product }}" \
             "$(dirname "${{ steps.detect.outputs.product }}")"
-
-      # Fallback path: only runs if ACR build failed
-      - name: Docker login to ACR (fallback path)
-        if: steps.acrbuild.outcome == 'failure'
-        uses: azure/docker-login@v2
-        with:
-          login-server: ${{ env.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Build & push with Docker (fallback path)
-        if: steps.acrbuild.outcome == 'failure'
-        run: |
-          set -e
-          docker build -t $ACR_LOGIN_SERVER/week08/order-service:${TAG} -f "${{ steps.detect.outputs.order }}" "$(dirname "${{ steps.detect.outputs.order }}")"
-          docker push $ACR_LOGIN_SERVER/week08/order-service:${TAG}
-
-          docker build -t $ACR_LOGIN_SERVER/week08/product-service:${TAG} -f "${{ steps.detect.outputs.product }}" "$(dirname "${{ steps.detect.outputs.product }}")"
-          docker push $ACR_LOGIN_SERVER/week08/product-service:${TAG}
 
       - name: Output image URIs
         run: |
