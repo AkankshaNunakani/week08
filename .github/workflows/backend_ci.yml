@@ -12,14 +12,24 @@ jobs:
       ACR_NAME: s722acr84438
       ACR_LOGIN_SERVER: s722acr84438.azurecr.io
       TAG: ${{ github.sha }}
+      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5   # <-- your subscription
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login (service principal JSON)
+      - name: Azure login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # >>> ADD THIS STEP <<<
+      - name: Set correct subscription (and verify ACR)
+        run: |
+          az account set --subscription "$SUB_ID"
+          echo "Using subscription:"
+          az account show -o table
+          echo "Checking ACR exists:"
+          az acr show -n "$ACR_NAME" -o table
 
       - name: Find Dockerfiles (order & product)
         id: detect
@@ -32,17 +42,15 @@ jobs:
           [[ -n "$PROD"  && -f "$PROD"  ]] || { echo "Product Dockerfile not found"; exit 1; }
           echo "order=$ORDER"  >> "$GITHUB_OUTPUT"
           echo "product=$PROD" >> "$GITHUB_OUTPUT"
-          echo "Using ORDER=$ORDER"
-          echo "Using PRODUCT=$PROD"
 
-      - name: Build & push order-service to ACR
+      - name: Build & push order-service
         run: |
           az acr build -r "$ACR_NAME" \
             -t week08/order-service:${TAG} \
             -f "${{ steps.detect.outputs.order }}" \
             "$(dirname "${{ steps.detect.outputs.order }}")"
 
-      - name: Build & push product-service to ACR
+      - name: Build & push product-service
         run: |
           az acr build -r "$ACR_NAME" \
             -t week08/product-service:${TAG} \
