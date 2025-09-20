@@ -21,30 +21,54 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Locate Dockerfiles (order & product)
-        id: detect
+      - name: Verify Azure context (debug)
+        run: |
+          set -e
+          az account show
+          az acr show -n "$ACR_NAME" -o table
+
+      - name: List repo tree and Dockerfiles (debug)
+        run: |
+          set -e
+          echo "==== REPO TREE (first 200 lines) ===="
+          ls -la
+          find . -maxdepth 3 -type f -iname Dockerfile -print | nl
+
+      - name: Resolve Dockerfile paths (prefer canonical paths)
+        id: paths
         shell: bash
         run: |
           set -e
-          ORDER_DF=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
-          PROD_DF=$( find . -type f -iname Dockerfile -path '*product*' | head -n1)
-          [ -n "$ORDER_DF" ] && [ -n "$PROD_DF" ] || { echo "Dockerfiles not found"; exit 1; }
-          echo "order=$ORDER_DF"  >> "$GITHUB_OUTPUT"
-          echo "product=$PROD_DF" >> "$GITHUB_OUTPUT"
+          # Preferred week08 layout
+          ORDER="backend/order-service/Dockerfile"
+          PROD="backend/product-service/Dockerfile"
+
+          # Fall back to auto-discovery if missing
+          [[ -f "$ORDER" ]] || ORDER=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
+          [[ -f "$PROD"  ]] ||  PROD=$(find . -type f -iname Dockerfile -path '*product*' | head -n1)
+
+          echo "ORDER_DF=$ORDER"
+          echo "PRODUCT_DF=$PROD"
+
+          [[ -n "$ORDER" && -f "$ORDER" ]] || { echo "ERROR: Order Dockerfile not found"; exit 1; }
+          [[ -n "$PROD"  && -f "$PROD"  ]] || { echo "ERROR: Product Dockerfile not found"; exit 1; }
+
+          echo "order=$ORDER"  >> "$GITHUB_OUTPUT"
+          echo "product=$PROD" >> "$GITHUB_OUTPUT"
 
       - name: Build & push order-service
         run: |
           az acr build -r "$ACR_NAME" \
             -t week08/order-service:${TAG} \
-            -f "${{ steps.detect.outputs.order }}" \
-            "$(dirname "${{ steps.detect.outputs.order }}")"
+            -f "${{ steps.paths.outputs.order }}" \
+            "$(dirname "${{ steps.paths.outputs.order }}")"
 
       - name: Build & push product-service
         run: |
           az acr build -r "$ACR_NAME" \
             -t week08/product-service:${TAG} \
-            -f "${{ steps.detect.outputs.product }}" \
-            "$(dirname "${{ steps.detect.outputs.product }}")"
+            -f "${{ steps.paths.outputs.product }}" \
+            "$(dirname "${{ steps.paths.outputs.product }}")"
 
       - name: Output image URIs
         run: |
