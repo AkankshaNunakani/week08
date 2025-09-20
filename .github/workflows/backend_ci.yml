@@ -10,9 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ACR_NAME: s722acr84438
-      ACR_LOGIN_SERVER: s722acr84438.azurecr.io
-      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
       TAG: ${{ github.sha }}
+      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
 
     steps:
       - uses: actions/checkout@v4
@@ -22,11 +21,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set subscription & verify ACR
-        run: |
-          set -e
-          az account set --subscription "$SUB_ID"
-          az acr show -n "$ACR_NAME" -o table
+      - name: Set subscription
+        run: az account set --subscription "$SUB_ID"
 
       - name: Find Dockerfiles (order & product)
         id: detect
@@ -53,8 +49,3 @@ jobs:
             -t week08/product-service:${TAG} \
             -f "${{ steps.detect.outputs.product }}" \
             "$(dirname "${{ steps.detect.outputs.product }}")"
-
-      - name: Output image URIs
-        run: |
-          echo "$ACR_LOGIN_SERVER/week08/order-service:${TAG}"
-          echo "$ACR_LOGIN_SERVER/week08/product-service:${TAG}"
