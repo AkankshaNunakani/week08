@@ -1,21 +1,22 @@
 name: Backend CD - Deploy to AKS
 
 on:
-  # Manual trigger with optional tag override
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to deploy (defaults to CI run SHA)"
+        description: "Image tag to deploy (leave blank to use latest CI SHA)"
         required: false
-  # Auto-trigger after CI succeeds
   workflow_run:
     workflows: [ "Backend CI - Test, Build and Push Images to ACR" ]
     types: [ "completed" ]
+    branches: [ "main" ]
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    # Run on manual trigger OR when CI completed successfully
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
     env:
       ACR_LOGIN_SERVER: s722acr84438.azurecr.io
       NAMESPACE: default
@@ -23,7 +24,8 @@ jobs:
       PRODUCT_DEPLOY: product-service-w08e1
       ORDER_CONTAINER: order-service-container
       PRODUCT_CONTAINER: product-service-container
-      TAG: ${{ github.event.inputs.tag != '' && github.event.inputs.tag || github.event.workflow_run.head_sha }}
+      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -33,13 +35,16 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Set subscription
+        run: az account set --subscription "$SUB_ID"
+
       - name: Set AKS context
         uses: azure/aks-set-context@v3
         with:
-          resource-group: ${{ secrets.AKS_RG }}   # e.g. sit722-week08-rg
-          cluster-name:  ${{ secrets.AKS_NAME }}  # e.g. sit722-aks-wk08
+          resource-group: ${{ secrets.AKS_RG }}
+          cluster-name:  ${{ secrets.AKS_NAME }}
 
-      - name: Update images
+      - name: Patch images to the new tag
         run: |
           set -e
           kubectl set image -n "$NAMESPACE" deploy/$ORDER_DEPLOY   $ORDER_CONTAINER=$ACR_LOGIN_SERVER/week08/order-service:$TAG
