@@ -18,12 +18,12 @@ jobs:
 
     env:
       ACR_LOGIN_SERVER: s722acr84438.azurecr.io
+      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
       NAMESPACE: default
       ORDER_DEPLOY: order-service-w08e1
       PRODUCT_DEPLOY: product-service-w08e1
       ORDER_CONTAINER: order-service-container
       PRODUCT_CONTAINER: product-service-container
-      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
       TAG: ${{ inputs.tag || github.event.workflow_run.head_sha || github.sha }}
 
     steps:
@@ -34,13 +34,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set subscription & show context
-        run: |
-          az account set --subscription "$SUB_ID"
-          echo "Using subscription:"
-          az account show -o table
-          echo "Cluster listing:"
-          az aks list -o table
+      - name: Set subscription
+        run: az account set --subscription "$SUB_ID"
 
       - name: Set AKS context (admin kubeconfig)
         uses: azure/aks-set-context@v3
@@ -48,12 +43,6 @@ jobs:
           resource-group: ${{ secrets.AKS_RG }}
           cluster-name:  ${{ secrets.AKS_NAME }}
           admin: true
-
-      - name: Quick cluster debug
-        run: |
-          kubectl version --short
-          kubectl get nodes -o wide
-          kubectl get deploy -n "$NAMESPACE"
 
       - name: Patch images to new tag
         run: |
