@@ -1,0 +1,69 @@
+name: Backend CI - Test, Build and Push Images to ACR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test_build_push:
+    runs-on: ubuntu-latest
+    env:
+      ACR_NAME: s722acr84438
+      ACR_SERVER: s722acr84438.azurecr.io
+      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
+      TAG: ${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (service principal)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set subscription
+        run: az account set --subscription "$SUB_ID"
+
+      - name: Login docker to ACR (token-based)
+        run: az acr login -n "$ACR_NAME"
+
+      - name: Find Dockerfiles (order + product)
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          # Try smart search first
+          ORDER=$(find . -type f -iname Dockerfile -path '*order*'   | head -n1)
+          PROD=$( find . -type f -iname Dockerfile -path '*product*' | head -n1)
+
+          # Fallback to common paths if needed
+          [[ -z "$ORDER" && -f "order-service/Dockerfile"   ]] && ORDER="order-service/Dockerfile"
+          [[ -z "$PROD"  && -f "product-service/Dockerfile" ]] && PROD="product-service/Dockerfile"
+
+          [[ -n "$ORDER" && -f "$ORDER" ]] || { echo "Order Dockerfile not found"; exit 1; }
+          [[ -n "$PROD"  && -f "$PROD"  ]] || { echo "Product Dockerfile not found"; exit 1; }
+
+          echo "order=$ORDER"  >> "$GITHUB_OUTPUT"
+          echo "product=$PROD" >> "$GITHUB_OUTPUT"
+          echo "Found ORDER=$ORDER"
+          echo "Found PRODUCT=$PROD"
+
+      - name: Build & push order-service (Docker)
+        run: |
+          ORDER_DF="${{ steps.detect.outputs.order }}"
+          ORDER_CTX="$(dirname "$ORDER_DF")"
+          docker build -t "$ACR_SERVER/week08/order-service:${TAG}" -f "$ORDER_DF" "$ORDER_CTX"
+          docker push "$ACR_SERVER/week08/order-service:${TAG}"
+
+      - name: Build & push product-service (Docker)
+        run: |
+          PROD_DF="${{ steps.detect.outputs.product }}"
+          PROD_CTX="$(dirname "$PROD_DF")"
+          docker build -t "$ACR_SERVER/week08/product-service:${TAG}" -f "$PROD_DF" "$PROD_CTX"
+          docker push "$ACR_SERVER/week08/product-service:${TAG}"
+
+      - name: Show image URIs
+        run: |
+          echo "$ACR_SERVER/week08/order-service:${TAG}"
+          echo "$ACR_SERVER/week08/product-service:${TAG}"
