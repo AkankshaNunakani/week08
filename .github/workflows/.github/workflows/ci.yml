@@ -1,11 +1,11 @@
-name: CI (Frontend & Backend)
+name: CI Frontend and Backend
 
 on:
   pull_request:
-    branches: [development]   # always run on PRs; jobs will self-skip via paths-filter
+    branches: [development]
   push:
-    branches: [main]          # release builds (images) on main only
-  workflow_dispatch: {}       # allow manual runs from the Actions tab
+    branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -13,7 +13,6 @@ permissions:
   packages: write
 
 env:
-  # Set this in repo Settings ▸ Actions ▸ Variables (e.g., s722acrXXXXX.azurecr.io)
   ACR_LOGIN: ${{ vars.ACR_LOGIN }}
 
 concurrency:
@@ -26,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
-      order:    ${{ steps.filter.outputs.order }}
-      product:  ${{ steps.filter.outputs.product }}
+      order: ${{ steps.filter.outputs.order }}
+      product: ${{ steps.filter.outputs.product }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
@@ -50,26 +49,21 @@ jobs:
       (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.frontend == 'true')
     steps:
       - uses: actions/checkout@v4
-      - name: Sanity checks
-        run: echo "✅ Frontend checks passed"
+      - run: echo Frontend checks passed
       - uses: docker/setup-buildx-action@v3
-
-      # Login to Azure only for release builds on main
-      - name: Azure login (OIDC)
+      - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-
-      - name: Azure Container Registry login
+      - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
-          test -n "${ACR_LOGIN}" || { echo "ACR_LOGIN not set; skipping push"; exit 0; }
+          test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-
-      - name: Build (and push on main)
+      - name: Build
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
@@ -81,7 +75,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   build_backend_order:
-    name: Build Backend – Order Service
+    name: Build Backend Order Service
     runs-on: ubuntu-latest
     needs: changes
     if: |
@@ -89,25 +83,21 @@ jobs:
       (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.order == 'true')
     steps:
       - uses: actions/checkout@v4
-      - name: Sanity checks
-        run: echo "✅ Backend (Order) checks passed"
+      - run: echo Backend order checks passed
       - uses: docker/setup-buildx-action@v3
-
-      - name: Azure login (OIDC)
+      - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-
-      - name: Azure Container Registry login
+      - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
-          test -n "${ACR_LOGIN}" || { echo "ACR_LOGIN not set; skipping push"; exit 0; }
+          test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-
-      - name: Build (and push on main)
+      - name: Build
         uses: docker/build-push-action@v6
         with:
           context: ./order_service
@@ -119,7 +109,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   build_backend_product:
-    name: Build Backend – Product Service
+    name: Build Backend Product Service
     runs-on: ubuntu-latest
     needs: changes
     if: |
@@ -127,25 +117,21 @@ jobs:
       (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.product == 'true')
     steps:
       - uses: actions/checkout@v4
-      - name: Sanity checks
-        run: echo "✅ Backend (Product) checks passed"
+      - run: echo Backend product checks passed
       - uses: docker/setup-buildx-action@v3
-
-      - name: Azure login (OIDC)
+      - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-
-      - name: Azure Container Registry login
+      - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
-          test -n "${ACR_LOGIN}" || { echo "ACR_LOGIN not set; skipping push"; exit 0; }
+          test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-
-      - name: Build (and push on main)
+      - name: Build
         uses: docker/build-push-action@v6
         with:
           context: ./product_service
