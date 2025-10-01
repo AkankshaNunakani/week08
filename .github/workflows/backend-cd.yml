@@ -33,7 +33,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # 🔒 Only authenticate to Azure on push to main
+      # Only authenticate to Azure on push to main
       - name: Azure login (service principal)
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
@@ -42,7 +42,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id:       ${{ secrets.AZURE_CLIENT_ID }}
 
-      # 🔒 Only log in to ACR on push to main (and only if ACR_LOGIN is set)
+      # Only log in to ACR on push to main (and only if ACR_LOGIN is set)
       - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main' && env.ACR_LOGIN != ''
         run: az acr login --name ${ACR_LOGIN%%.*}
