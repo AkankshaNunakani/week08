@@ -13,13 +13,7 @@ permissions:
   packages: write
 
 env:
-  # Example: s722acrXXXXX.azurecr.io (set as repo Action Variable)
   ACR_LOGIN: ${{ vars.ACR_LOGIN }}
-
-# Safe concurrency string for all events/runners
-concurrency:
-  group: ${{ format('ci-{0}-{1}', github.workflow, github.ref) }}
-  cancel-in-progress: true
 
 jobs:
   changes:
