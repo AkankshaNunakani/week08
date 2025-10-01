@@ -5,7 +5,7 @@ on:
     branches: [development]
   push:
     branches: [main]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -25,8 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
-      order: ${{ steps.filter.outputs.order }}
-      product: ${{ steps.filter.outputs.product }}
+      backend:  ${{ steps.filter.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
@@ -35,10 +34,8 @@ jobs:
           filters: |
             frontend:
               - 'frontend/**'
-            order:
-              - 'order_service/**'
-            product:
-              - 'product_service/**'
+            backend:
+              - 'backend/**'
 
   build_frontend:
     name: Build Frontend
@@ -49,12 +46,8 @@ jobs:
       (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.frontend == 'true')
     steps:
       - uses: actions/checkout@v4
-      - name: PR check
-        if: github.event_name == 'pull_request'
-        run: echo "✅ Frontend PR checks passed"
-
+      - run: echo Frontend checks passed
       - uses: docker/setup-buildx-action@v3
-        if: github.event_name == 'push' && github.ref_name == 'main'
 
       - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
@@ -67,35 +60,32 @@ jobs:
       - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
-          test -n "${ACR_LOGIN}" || { echo "ACR_LOGIN not set; skipping build/push"; exit 0; }
+          test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
 
-      - name: Build (main only)
-        if: github.event_name == 'push' && github.ref_name == 'main'
+      - name: Build
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
           tags: |
             ${{ env.ACR_LOGIN }}/frontend:${{ github.sha }}
             ${{ env.ACR_LOGIN }}/frontend:latest
-          push: true
+          push: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  build_backend_order:
-    name: Build Backend Order Service
+  build_backend:
+    name: Build Backend
     runs-on: ubuntu-latest
     needs: changes
     if: |
-      (github.event_name == 'pull_request' && needs.changes.outputs.order == 'true') ||
-      (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.order == 'true')
+      (github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true') ||
+      (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.backend == 'true')
     steps:
       - uses: actions/checkout@v4
-      - name: PR check
-        if: github.event_name == 'pull_request'
-        run: echo "✅ Backend Order PR checks passed"
+      - run: echo Backend checks passed
       - uses: docker/setup-buildx-action@v3
-        if: github.event_name == 'push' && github.ref_name == 'main'
+
       - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
@@ -103,57 +93,20 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      - name: ACR login
-        if: github.event_name == 'push' && github.ref_name == 'main'
-        run: |
-          test -n "${ACR_LOGIN}" || { echo "ACR_LOGIN not set; skipping build/push"; exit 0; }
-          az acr login --name ${ACR_LOGIN%%.*}
-      - name: Build (main only)
-        if: github.event_name == 'push' && github.ref_name == 'main'
-        uses: docker/build-push-action@v6
-        with:
-          context: ./order_service
-          tags: |
-            ${{ env.ACR_LOGIN }}/week08/order-service:${{ github.sha }}
-            ${{ env.ACR_LOGIN }}/week08/order-service:latest
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
-  build_backend_product:
-    name: Build Backend Product Service
-    runs-on: ubuntu-latest
-    needs: changes
-    if: |
-      (github.event_name == 'pull_request' && needs.changes.outputs.product == 'true') ||
-      (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.product == 'true')
-    steps:
-      - uses: actions/checkout@v4
-      - name: PR check
-        if: github.event_name == 'pull_request'
-        run: echo "✅ Backend Product PR checks passed"
-      - uses: docker/setup-buildx-action@v3
-        if: github.event_name == 'push' && github.ref_name == 'main'
-      - name: Azure login
-        if: github.event_name == 'push' && github.ref_name == 'main'
-        uses: azure/login@v2
-        with:
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
       - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
-          test -n "${ACR_LOGIN}" || { echo "ACR_LOGIN not set; skipping build/push"; exit 0; }
+          test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-      - name: Build (main only)
-        if: github.event_name == 'push' && github.ref_name == 'main'
+
+      - name: Build
         uses: docker/build-push-action@v6
         with:
-          context: ./product_service
+          context: ./backend
           tags: |
-            ${{ env.ACR_LOGIN }}/week08/product-service:${{ github.sha }}
-            ${{ env.ACR_LOGIN }}/week08/product-service:latest
-          push: true
+            ${{ env.ACR_LOGIN }}/week08/backend:${{ github.sha }}
+            ${{ env.ACR_LOGIN }}/week08/backend:latest
+          push: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
