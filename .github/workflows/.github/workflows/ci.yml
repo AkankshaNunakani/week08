@@ -16,8 +16,9 @@ env:
   # Example: s722acrXXXXX.azurecr.io (set as repo Action Variable)
   ACR_LOGIN: ${{ vars.ACR_LOGIN }}
 
+# Simplified, safe concurrency (works for PRs and pushes)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
