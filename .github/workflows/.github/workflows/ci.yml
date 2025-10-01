@@ -16,9 +16,9 @@ env:
   # Example: s722acrXXXXX.azurecr.io (set as repo Action Variable)
   ACR_LOGIN: ${{ vars.ACR_LOGIN }}
 
-# Simplified, safe concurrency (works for PRs and pushes)
+# Safe concurrency string for all events/runners
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ format('ci-{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: true
 
 jobs:
@@ -53,7 +53,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: echo Frontend checks passed
       - uses: docker/setup-buildx-action@v3
-
       - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
@@ -61,13 +60,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-
       - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
           test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-
       - name: Build
         uses: docker/build-push-action@v6
         with:
@@ -90,7 +87,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: echo Backend order checks passed
       - uses: docker/setup-buildx-action@v3
-
       - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
@@ -98,13 +94,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-
       - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
           test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-
       - name: Build
         uses: docker/build-push-action@v6
         with:
@@ -127,7 +121,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: echo Backend product checks passed
       - uses: docker/setup-buildx-action@v3
-
       - name: Azure login
         if: github.event_name == 'push' && github.ref_name == 'main'
         uses: azure/login@v2
@@ -135,13 +128,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-
       - name: ACR login
         if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
           test -n "${ACR_LOGIN}" || { echo ACR_LOGIN not set; exit 0; }
           az acr login --name ${ACR_LOGIN%%.*}
-
       - name: Build
         uses: docker/build-push-action@v6
         with:
