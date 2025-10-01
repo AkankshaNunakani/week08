@@ -3,15 +3,9 @@ name: CI Frontend and Backend
 on:
   pull_request:
     branches: [development]
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
   push:
     branches: [main]
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -20,47 +14,3 @@ permissions:
 
 env:
   ACR_LOGIN: ${{ vars.ACR_LOGIN }}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
-
-jobs:
-  changes:
-    name: Detect changed paths
-    runs-on: ubuntu-latest
-    outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      backend:  ${{ steps.filter.outputs.backend }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            frontend:
-              - 'frontend/**'
-            backend:
-              - 'backend/**'
-
-  build_frontend:
-    name: Build Frontend
-    runs-on: ubuntu-latest
-    needs: changes
-    if: >
-      (github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true') ||
-      (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.frontend == 'true')
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "Frontend build would run here"
-
-  build_backend:
-    name: Build Backend
-    runs-on: ubuntu-latest
-    needs: changes
-    if: >
-      (github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true') ||
-      (github.event_name == 'push' && github.ref_name == 'main' && needs.changes.outputs.backend == 'true')
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "Backend build would run here"
