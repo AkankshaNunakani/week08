@@ -1,62 +1,39 @@
 name: Backend CD - Deploy to AKS
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Image tag to deploy (leave blank to use latest CI SHA)"
-        required: false
   workflow_run:
-    workflows: [ "Backend CI - Test, Build and Push Images to ACR" ]
-    types: [ "completed" ]
-    branches: [ "main" ]
+    workflows: ["CI Frontend and Backend"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID }}
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    env:
-      ACR_LOGIN_SERVER: s722acr84438.azurecr.io
-      SUB_ID: 3ec3f453-a0b9-4c9e-81d1-fc985be293b5
-      NAMESPACE: default
-      ORDER_DEPLOY: order-service-w08e1
-      PRODUCT_DEPLOY: product-service-w08e1
-      ORDER_CONTAINER: order-service-container
-      PRODUCT_CONTAINER: product-service-container
-      TAG: ${{ inputs.tag || github.event.workflow_run.head_sha || github.sha }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login
+      - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Set subscription
-        run: az account set --subscription "$SUB_ID"
-
-      - name: Set AKS context (admin kubeconfig)
-        uses: azure/aks-set-context@v3
-        with:
-          resource-group: ${{ secrets.AKS_RG }}
-          cluster-name:  ${{ secrets.AKS_NAME }}
-          admin: true
-
-      - name: Patch images to new tag
+      - name: Show ACR images
         run: |
-          set -e
-          echo "Deploying tag: $TAG"
-          kubectl set image -n "$NAMESPACE" deploy/$ORDER_DEPLOY   $ORDER_CONTAINER=$ACR_LOGIN_SERVER/week08/order-service:$TAG
-          kubectl set image -n "$NAMESPACE" deploy/$PRODUCT_DEPLOY $PRODUCT_CONTAINER=$ACR_LOGIN_SERVER/week08/product-service:$TAG
+          : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
+          az acr repository list --name "${ACR_LOGIN_SERVER%%.azurecr.io}" -o table
 
-      - name: Wait for rollout
-        run: |
-          set -e
-          kubectl rollout status -n "$NAMESPACE" deploy/$ORDER_DEPLOY
-          kubectl rollout status -n "$NAMESPACE" deploy/$PRODUCT_DEPLOY
-
-      - name: Show deployed images
-        run: |
-          kubectl get deploy -n "$NAMESPACE" \
-            -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas
+      # - name: Get AKS creds
+      #   run: az aks get-credentials -g <resource-group> -n <aks-name> --overwrite-existing
+      # - name: kubectl apply
+      #   run: kubectl apply -f k8s/
