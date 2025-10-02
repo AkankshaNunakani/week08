@@ -44,7 +44,7 @@ jobs:
   build_frontend:
     name: Build Frontend
     needs: detect_changed_paths
-    # run only if frontend changed AND a Node project actually exists
+    # Only if frontend changed AND a Node project actually exists
     if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' && hashFiles('frontend/package.json') != '' }}
     runs-on: ubuntu-latest
     steps:
@@ -72,7 +72,7 @@ jobs:
           if npm run | grep -qE '^  build'; then
             npm run build
           else
-            echo "No build script found in package.json — skipping."
+            echo "No build script found in package.json â€” skipping."
           fi
 
   build_and_push_backend:
@@ -119,5 +119,3 @@ jobs:
       - run: |
           echo "Backend changed but Azure variables are not all set."
           echo "Skipping backend build/push to keep CI green for the assignment."
-' -NoNewline
-
