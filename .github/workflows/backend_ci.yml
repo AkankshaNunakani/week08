@@ -1,31 +1,88 @@
-# .github/workflows/backend_ci.yml
-name: Backend CI - Test, Build and Push Image
+name: CI Frontend and Backend
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/**"
   pull_request:
     branches: [development]
     paths:
+      - "frontend/**"
       - "backend/**"
       - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/**"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
-  id-token: write   # REQUIRED for OIDC
+  id-token: write
 
 jobs:
-  test_build_push:
+  detect_changed_paths:
+    name: Detect changed paths
     runs-on: ubuntu-latest
-    # Only run if Azure IDs are present (keeps CI green in class envs)
-    if: ${{ vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID }}
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend:  ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            backend:
+              - 'backend/**'
+
+  build_frontend:
+    name: Build Frontend
+    needs: detect_changed_paths
+    # only if frontend changed and it's actually a Node project
+    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' && hashFiles('frontend/package.json') != '' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # *** OIDC login (no secrets) ***
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps (ci with fallback)
+        working-directory: frontend
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build (skip if no script)
+        working-directory: frontend
+        run: |
+          if npm run | grep -qE '^  build'; then
+            npm run build
+          else
+            echo "No build script found in package.json — skipping."
+          fi
+
+  build_and_push_backend:
+    name: Build & Push Backend (Docker)
+    needs: detect_changed_paths
+    if: ${{ needs.detect_changed_paths.outputs.backend == 'true' && vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID && vars.ACR_LOGIN_SERVER }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -34,39 +91,65 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set subscription
-        run: az account show
+        run: az account set --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}"
 
+      - name: List backend Dockerfiles
+        run: |
+          find backend -name "Dockerfile" -maxdepth 2 || true
+
+      # -------- robust ACR login (fixes your current error) --------
       - name: Login docker to ACR (token-based)
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
         run: |
-          : "${ACR_LOGIN_SERVER?Set repository variable ACR_LOGIN_SERVER like myacr.azurecr.io}"
-          az acr login --name "${ACR_LOGIN_SERVER%%.azurecr.io}"
+          set -e
 
-      - name: Find Dockerfiles (order + product)
-        run: |
-          find backend -name Dockerfile -maxdepth 3 || true
+          : "${ACR_LOGIN_SERVER?Set ACR_LOGIN_SERVER repo variable, e.g. myacr.azurecr.io}"
 
-      - name: Build & push order-service (Docker)
+          # normalize: lowercase, strip protocol, trailing slash, spaces
+          REG_SERVER="${ACR_LOGIN_SERVER,,}"
+          REG_SERVER="${REG_SERVER#https://}"
+          REG_SERVER="${REG_SERVER#http://}"
+          REG_SERVER="${REG_SERVER%%/}"
+          REG_SERVER="$(printf "%s" "$REG_SERVER" | tr -d '[:space:]')"
+
+          # derive name for az acr login --name (no .azurecr.io)
+          REG_NAME="${REG_SERVER%%.azurecr.io}"
+
+          # validate (5–50 alphanumeric)
+          if ! printf "%s" "$REG_NAME" | grep -Eq '^[a-z0-9]{5,50}$'; then
+            echo "ACR name [$REG_NAME] is invalid. Set ACR_LOGIN_SERVER like: myacr.azurecr.io"
+            exit 1
+          fi
+
+          echo "Using ACR server: $REG_SERVER  (name: $REG_NAME)"
+          az acr login --name "$REG_NAME"
+      # --------------------------------------------------------------
+
+      - name: Build & push order-service
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
         run: |
-          : "${ACR_LOGIN_SERVER?Set ACR_LOGIN_SERVER repo variable}"
+          set -e
+          : "${ACR_LOGIN_SERVER?Need ACR_LOGIN_SERVER like myacr.azurecr.io}"
           docker build -t "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}" backend/order_service
           docker push "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}"
 
-      - name: Build & push product-service (Docker)
+      - name: Build & push product-service
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
         run: |
-          : "${ACR_LOGIN_SERVER?Set ACR_LOGIN_SERVER repo variable}"
+          set -e
+          : "${ACR_LOGIN_SERVER?Need ACR_LOGIN_SERVER like myacr.azurecr.io}"
           docker build -t "$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}" backend/product_service
           docker push "$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}"
 
-  # Friendly note if Azure vars aren’t set
   backend_skipped_note:
+    name: Backend skipped (no Azure vars)
+    needs: detect_changed_paths
+    if: ${{ needs.detect_changed_paths.outputs.backend == 'true' && !(vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID && vars.ACR_LOGIN_SERVER) }}
     runs-on: ubuntu-latest
-    if: ${{ !(vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID) }}
     steps:
       - run: |
-          echo "Skipping backend build/push: set AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID (Actions → Variables)."
+          echo "Backend changed but one or more Azure vars are missing."
+          echo "Required: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, ACR_LOGIN_SERVER."
