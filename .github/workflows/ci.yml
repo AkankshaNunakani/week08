@@ -44,13 +44,23 @@ jobs:
   build_frontend:
     name: Build Frontend
     needs: detect_changed_paths
-    # only if frontend changed and it's actually a Node project
-    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' && hashFiles('frontend/package.json') != '' }}
+    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      # Check if this is actually a Node project
+      - id: has_pkg
+        name: Check for frontend/package.json
+        run: |
+          if [ -f frontend/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Node
+        if: ${{ steps.has_pkg.outputs.present == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: '18'
@@ -58,6 +68,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install deps (ci with fallback)
+        if: ${{ steps.has_pkg.outputs.present == 'true' }}
         working-directory: frontend
         run: |
           if [ -f package-lock.json ]; then
@@ -67,13 +78,18 @@ jobs:
           fi
 
       - name: Build (skip if no script)
+        if: ${{ steps.has_pkg.outputs.present == 'true' }}
         working-directory: frontend
         run: |
           if npm run | grep -qE '^  build'; then
             npm run build
           else
-            echo "No build script found in package.json — skipping."
+            echo "No build script in package.json — skipping."
           fi
+
+      - name: Skip note (not a Node project)
+        if: ${{ steps.has_pkg.outputs.present != 'true' }}
+        run: echo "frontend/ has no package.json — skipping frontend build."
 
   build_and_push_backend:
     name: Build & Push Backend (Docker)
@@ -97,34 +113,24 @@ jobs:
         run: |
           find backend -name "Dockerfile" -maxdepth 2 || true
 
-      # -------- robust ACR login (fixes your current error) --------
+      # Robust ACR login (parses & validates the server; fixes your earlier error)
       - name: Login docker to ACR (token-based)
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
         run: |
           set -e
-
           : "${ACR_LOGIN_SERVER?Set ACR_LOGIN_SERVER repo variable, e.g. myacr.azurecr.io}"
-
-          # normalize: lowercase, strip protocol, trailing slash, spaces
           REG_SERVER="${ACR_LOGIN_SERVER,,}"
-          REG_SERVER="${REG_SERVER#https://}"
-          REG_SERVER="${REG_SERVER#http://}"
+          REG_SERVER="${REG_SERVER#https://}"; REG_SERVER="${REG_SERVER#http://}"
           REG_SERVER="${REG_SERVER%%/}"
           REG_SERVER="$(printf "%s" "$REG_SERVER" | tr -d '[:space:]')"
-
-          # derive name for az acr login --name (no .azurecr.io)
           REG_NAME="${REG_SERVER%%.azurecr.io}"
-
-          # validate (5–50 alphanumeric)
           if ! printf "%s" "$REG_NAME" | grep -Eq '^[a-z0-9]{5,50}$'; then
-            echo "ACR name [$REG_NAME] is invalid. Set ACR_LOGIN_SERVER like: myacr.azurecr.io"
+            echo "ACR name [$REG_NAME] is invalid. Use myacr.azurecr.io"
             exit 1
           fi
-
-          echo "Using ACR server: $REG_SERVER  (name: $REG_NAME)"
+          echo "Using ACR server: $REG_SERVER (name: $REG_NAME)"
           az acr login --name "$REG_NAME"
-      # --------------------------------------------------------------
 
       - name: Build & push order-service
         env:
