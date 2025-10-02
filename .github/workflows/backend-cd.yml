@@ -33,7 +33,6 @@ jobs:
           : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
           az acr repository list --name "${ACR_LOGIN_SERVER%%.azurecr.io}" -o table
 
-      # Uncomment if/when you have AKS wired up:
       # - name: Get AKS creds
       #   run: az aks get-credentials -g <resource-group> -n <aks-name> --overwrite-existing
       # - name: kubectl apply
