@@ -44,11 +44,27 @@ jobs:
   build_frontend:
     name: Build Frontend
     needs: detect_changed_paths
-    # Only run at all if a real Node project exists
-    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' && hashFiles('frontend/package.json') != '' }}
+    # run only if frontend changed AND a real app (with build script) exists
+    if: >
+      ${{
+        needs.detect_changed_paths.outputs.frontend == 'true' &&
+        hashFiles('frontend/package.json') != '' &&
+        contains( toJson(steps.pkg.outputs.scripts), '"build"' )
+      }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Read package.json to see available scripts
+      - id: pkg
+        name: Read package.json (if any)
+        shell: bash
+        run: |
+          if [ -f frontend/package.json ]; then
+            echo "scripts=$(jq -c '.scripts // {}' frontend/package.json)" >> "$GITHUB_OUTPUT"
+          else
+            echo "scripts={}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -57,31 +73,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Prepare lockfile (avoid shrinkwrap ci failure)
+      - name: Install deps (safe)
         working-directory: frontend
-        run: |
-          if [ -f npm-shrinkwrap.json ] && [ ! -f package-lock.json ]; then
-            # create a package-lock so npm ci can work, or we’ll fall back to npm i
-            cp npm-shrinkwrap.json package-lock.json || true
-          fi
-
-      - name: Install deps (never fail)
-        working-directory: frontend
+        shell: bash
         run: |
           if [ -f package-lock.json ]; then
-            npm ci --no-audit --fund=false || npm install --no-audit --fund=false || true
+            # Use ci only when a proper lockfile exists; fall back to install if ci errors anyway
+            npm ci || npm install --no-audit --no-fund
           else
-            npm install --no-audit --fund=false || true
+            npm install --no-audit --no-fund
           fi
 
-      - name: Build if script exists (never fail)
+      - name: Build
         working-directory: frontend
-        run: |
-          if npm run | grep -qE '^  build'; then
-            npm run build || true
-          else
-            echo "No build script — skipping."
-          fi
+        shell: bash
+        run: npm run build
 
   build_and_push_backend:
     name: Build & Push Backend (Docker)
@@ -99,10 +105,11 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: List backend Dockerfiles
-        run: |
-          find backend -name "Dockerfile" -maxdepth 2 || true
+        shell: bash
+        run: find backend -name "Dockerfile" -maxdepth 2 || true
 
       - name: Build & push order-service
+        shell: bash
         run: |
           set -e
           : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
@@ -111,6 +118,7 @@ jobs:
           docker push "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}"
 
       - name: Build & push product-service
+        shell: bash
         run: |
           set -e
           : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
@@ -125,5 +133,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          echo "Backend changed but AZURE_* vars are not all set."
-          echo "Skipping backend build/push to keep CI green for the assignment."
+          echo "Backend changed but Azure variables are not all set."
+          echo "Skipping backend build/push to keep CI green."
