@@ -15,14 +15,12 @@ on:
       - ".github/workflows/**"
   workflow_dispatch: {}
 
-# avoid duplicate runs for same ref
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  # needed ONLY when we try Azure OIDC login
   id-token: write
 
 jobs:
@@ -34,7 +32,6 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
-
       - id: filter
         uses: dorny/paths-filter@v3
         with:
@@ -51,8 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # — put your real frontend build here —
       - name: Install deps
         run: |
           cd frontend
@@ -65,13 +60,11 @@ jobs:
   build_and_push_backend:
     name: Build & Push Backend (Docker)
     needs: detect_changed_paths
-    # run only if backend changed AND all three Azure vars exist
     if: ${{ needs.detect_changed_paths.outputs.backend == 'true' && vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # OIDC login to Azure
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -79,45 +72,32 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # OPTIONAL: set your subscription (helpful if you have more than one)
-      - name: Set subscription
-        run: az account show
-
-      # You likely have two services; adjust as needed
-      - name: Find Dockerfiles
+      - name: List backend Dockerfiles
         run: |
-          echo "Listing backend Dockerfiles:"
-          find backend -name "Dockerfile" -maxdepth 2
+          find backend -name "Dockerfile" -maxdepth 2 || true
 
-      - name: Build & push order-service (Docker)
+      - name: Build & push order-service
         run: |
           set -e
           : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
-          IMAGE="$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}"
-          echo "Building $IMAGE"
-          docker build -t "$IMAGE" backend/order_service
           az acr login --name "${ACR_LOGIN_SERVER%%.azurecr.io}"
-          docker push "$IMAGE"
+          docker build -t "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}" backend/order_service
+          docker push "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}"
 
-      - name: Build & push product-service (Docker)
+      - name: Build & push product-service
         run: |
           set -e
           : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
-          IMAGE="$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}"
-          echo "Building $IMAGE"
-          docker build -t "$IMAGE" backend/product_service
           az acr login --name "${ACR_LOGIN_SERVER%%.azurecr.io}"
-          docker push "$IMAGE"
+          docker build -t "$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}" backend/product_service
+          docker push "$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}"
 
-  # This job is here so CI still passes when Azure vars are missing.
-  # It marks backend as "skipped ok" instead of failing.
   backend_skipped_note:
     name: Backend skipped (no Azure vars)
     needs: detect_changed_paths
     if: ${{ needs.detect_changed_paths.outputs.backend == 'true' && !(vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID) }}
     runs-on: ubuntu-latest
     steps:
-      - name: Note
-        run: |
+      - run: |
           echo "Backend changed but Azure variables are not all set."
           echo "Skipping backend build/push to keep CI green for the assignment."
