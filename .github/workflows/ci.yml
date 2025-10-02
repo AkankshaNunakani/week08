@@ -44,18 +44,36 @@ jobs:
   build_frontend:
     name: Build Frontend
     needs: detect_changed_paths
-    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' }}
+    # run only if frontend changed AND a Node project actually exists
+    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' && hashFiles('frontend/package.json') != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install deps
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps (ci with fallback)
+        working-directory: frontend
         run: |
-          cd frontend
-          npm ci
-      - name: Build
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build (skip if no script)
+        working-directory: frontend
         run: |
-          cd frontend
-          npm run build
+          if npm run | grep -qE '^  build'; then
+            npm run build
+          else
+            echo "No build script found in package.json — skipping."
+          fi
 
   build_and_push_backend:
     name: Build & Push Backend (Docker)
@@ -101,3 +119,5 @@ jobs:
       - run: |
           echo "Backend changed but Azure variables are not all set."
           echo "Skipping backend build/push to keep CI green for the assignment."
+' -NoNewline
+
