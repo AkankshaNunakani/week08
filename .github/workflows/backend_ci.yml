@@ -1,22 +1,13 @@
-name: CI Frontend and Backend
+name: Backend CD - Deploy to AKS
 
 on:
-  pull_request:
-    branches: [development]
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - ".github/workflows/**"
-  push:
+  workflow_run:
+    workflows: ["CI Frontend and Backend"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - ".github/workflows/**"
-  workflow_dispatch: {}
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: cd-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -24,61 +15,9 @@ permissions:
   id-token: write
 
 jobs:
-  detect_changed_paths:
-    name: Detect changed paths
-    runs-on: ubuntu-latest
-    outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      backend:  ${{ steps.filter.outputs.backend }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            frontend:
-              - 'frontend/**'
-            backend:
-              - 'backend/**'
-
-  build_frontend:
-    name: Build Frontend
-    needs: detect_changed_paths
-    # only if frontend changed and it's actually a Node project
-    if: ${{ needs.detect_changed_paths.outputs.frontend == 'true' && hashFiles('frontend/package.json') != '' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install deps (ci with fallback)
-        working-directory: frontend
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-
-      - name: Build (skip if no script)
-        working-directory: frontend
-        run: |
-          if npm run | grep -qE '^  build'; then
-            npm run build
-          else
-            echo "No build script found in package.json — skipping."
-          fi
-
-  build_and_push_backend:
-    name: Build & Push Backend (Docker)
-    needs: detect_changed_paths
-    if: ${{ needs.detect_changed_paths.outputs.backend == 'true' && vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID && vars.ACR_LOGIN_SERVER }}
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success'
+          && vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID && vars.ACR_LOGIN_SERVER }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,63 +32,16 @@ jobs:
       - name: Set subscription
         run: az account set --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}"
 
-      - name: List backend Dockerfiles
-        run: |
-          find backend -name "Dockerfile" -maxdepth 2 || true
-
-      # -------- robust ACR login (fixes your current error) --------
-      - name: Login docker to ACR (token-based)
+      - name: Show ACR images
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
         run: |
-          set -e
-
-          : "${ACR_LOGIN_SERVER?Set ACR_LOGIN_SERVER repo variable, e.g. myacr.azurecr.io}"
-
-          # normalize: lowercase, strip protocol, trailing slash, spaces
-          REG_SERVER="${ACR_LOGIN_SERVER,,}"
-          REG_SERVER="${REG_SERVER#https://}"
-          REG_SERVER="${REG_SERVER#http://}"
-          REG_SERVER="${REG_SERVER%%/}"
-          REG_SERVER="$(printf "%s" "$REG_SERVER" | tr -d '[:space:]')"
-
-          # derive name for az acr login --name (no .azurecr.io)
-          REG_NAME="${REG_SERVER%%.azurecr.io}"
-
-          # validate (5–50 alphanumeric)
-          if ! printf "%s" "$REG_NAME" | grep -Eq '^[a-z0-9]{5,50}$'; then
-            echo "ACR name [$REG_NAME] is invalid. Set ACR_LOGIN_SERVER like: myacr.azurecr.io"
-            exit 1
-          fi
-
-          echo "Using ACR server: $REG_SERVER  (name: $REG_NAME)"
-          az acr login --name "$REG_NAME"
-      # --------------------------------------------------------------
-
-      - name: Build & push order-service
-        env:
-          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
-        run: |
-          set -e
           : "${ACR_LOGIN_SERVER?Need ACR_LOGIN_SERVER like myacr.azurecr.io}"
-          docker build -t "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}" backend/order_service
-          docker push "$ACR_LOGIN_SERVER/order-service:${GITHUB_SHA::7}"
+          REG_NAME="${ACR_LOGIN_SERVER%%.azurecr.io}"
+          az acr repository list --name "$REG_NAME" -o table
 
-      - name: Build & push product-service
-        env:
-          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
-        run: |
-          set -e
-          : "${ACR_LOGIN_SERVER?Need ACR_LOGIN_SERVER like myacr.azurecr.io}"
-          docker build -t "$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}" backend/product_service
-          docker push "$ACR_LOGIN_SERVER/product-service:${GITHUB_SHA::7}"
-
-  backend_skipped_note:
-    name: Backend skipped (no Azure vars)
-    needs: detect_changed_paths
-    if: ${{ needs.detect_changed_paths.outputs.backend == 'true' && !(vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID && vars.ACR_LOGIN_SERVER) }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "Backend changed but one or more Azure vars are missing."
-          echo "Required: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, ACR_LOGIN_SERVER."
+      # Optional deployment (keep commented if not deploying now)
+      # - name: Get AKS creds
+      #   run: az aks get-credentials -g <resource-group> -n <aks-name> --overwrite-existing
+      # - name: kubectl apply
+      #   run: kubectl apply -f k8s/
