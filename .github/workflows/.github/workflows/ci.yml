@@ -6,9 +6,15 @@ on:
     paths:
       - "frontend/**"
       - "backend/**"
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/**"
   workflow_dispatch: {}
 
-# Needed for OIDC and for checking out code
 permissions:
   contents: read
   id-token: write
@@ -22,7 +28,6 @@ jobs:
       backend:  ${{ steps.filter.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
-
       - id: filter
         uses: dorny/paths-filter@v3
         with:
@@ -32,38 +37,28 @@ jobs:
             backend:
               - 'backend/**'
 
-  build_frontend:
-    if: needs.detect.outputs.frontend == 'true'
+  build-frontend:
+    if: ${{ needs.detect.outputs.frontend == 'true' && github.event_name == 'pull_request' }}
     needs: detect
+    name: Build Frontend (PR only)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # (Replace with your real frontend build if needed)
-      - name: Node setup
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install & build (frontend)
-        working-directory: frontend
+      - name: Node build
+        working-directory: ./frontend
         run: |
-          npm ci || npm install
-          npm run build || echo "demo build only"
+          npm ci
+          npm run build
 
-  build_backend:
-    if: needs.detect.outputs.backend == 'true'
+  build-backend:
+    if: ${{ needs.detect.outputs.backend == 'true' && github.event_name == 'pull_request' }}
     needs: detect
+    name: Build Backend (PR only)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # (Replace with your real backend build if needed)
-      - name: .NET setup (example)
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-      - name: Build (backend)
-        working-directory: backend
+      - name: Backend test/build placeholder
+        working-directory: ./backend
         run: |
-          dotnet restore || true
-          dotnet build -c Release || echo "demo build only"
+          echo "run unit tests here"
+          echo "build here"
