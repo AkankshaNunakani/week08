@@ -1,80 +1,42 @@
-name: Backend CD - Test, Build and Push Images to ACR
+name: Backend CD - Deploy to AKS
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI Frontend and Backend"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend_cd.yml"
-  workflow_dispatch: {}
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
   id-token: write
 
-env:
-  # ACR_NAME is a simple name like "wk08acr123"
-  ACR_NAME: ${{ vars.ACR_NAME }}
-  IMAGE_TAG: ${{ github.sha }}
-
 jobs:
-  changes:
-    name: Detect changed paths
-    runs-on: ubuntu-latest
-    outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            backend:
-              - 'backend/**'
-
-  test_build_push:
-    name: Test/Build/Push (ACR)
-    needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+  deploy:
+    # Only if CI succeeded and Azure vars exist
+    if: ${{ github.event.workflow_run.conclusion == 'success' && vars.AZURE_CLIENT_ID && vars.AZURE_TENANT_ID && vars.AZURE_SUBSCRIPTION_ID }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # ---------- OIDC login to Azure ----------
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          client-id:       ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id:       ${{ vars.AZURE_TENANT_ID }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # ---------- Get ACR login server ----------
-      - id: acr
-        name: Get ACR login server
+      # Example: pull images & apply manifests (adjust to your AKS/kubelogin)
+      - name: Show images (from ACR)
         run: |
-          LOGIN_SERVER=$(az acr show -n "${{ env.ACR_NAME }}" --query loginServer -o tsv)
-          echo "login_server=$LOGIN_SERVER" >> "$GITHUB_OUTPUT"
+          : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
+          az acr repository list --name "${ACR_LOGIN_SERVER%%.azurecr.io}" -o table
 
-      # ---------- Docker login to ACR ----------
-      - name: Docker login
-        run: |
-          az acr login -n "${{ env.ACR_NAME }}"
+      # - name: Get AKS creds
+      #   run: az aks get-credentials -g <resource-group> -n <aks-name> --overwrite-existing
 
-      # ---------- Find Dockerfiles (edit paths to yours) ----------
-      # Example assumes backend has Dockerfiles at backend/order_service/Dockerfile and backend/product_service/Dockerfile
-      - name: Build & push order-service
-        working-directory: backend/order_service
-        run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/order-service:${{ env.IMAGE_TAG }} .
-          docker push    ${{ steps.acr.outputs.login_server }}/order-service:${{ env.IMAGE_TAG }}
-
-      - name: Build & push product-service
-        working-directory: backend/product_service
-        run: |
-          docker build -t ${{ steps.acr.outputs.login_server }}/product-service:${{ env.IMAGE_TAG }} .
-          docker push    ${{ steps.acr.outputs.login_server }}/product-service:${{ env.IMAGE_TAG }}
-
-      - name: Show image URIs
-        run: |
-          echo "Order:   ${{ steps.acr.outputs.login_server }}/order-service:${{ env.IMAGE_TAG }}"
-          echo "Product: ${{ steps.acr.outputs.login_server }}/product-service:${{ env.IMAGE_TAG }}"
+      # - name: kubectl apply
+      #   run: kubectl apply -f k8s/
