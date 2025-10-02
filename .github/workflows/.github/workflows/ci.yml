@@ -4,12 +4,6 @@ on:
   pull_request:
     branches: [development]
     paths:
-      - "frontend/**"name: CI Frontend and Backend
-
-on:
-  pull_request:
-    branches: [development]
-    paths:
       - "frontend/**"
       - "backend/**"
       - ".github/workflows/**"
@@ -127,60 +121,3 @@ jobs:
         run: |
           echo "Backend changed but Azure variables are not all set."
           echo "Skipping backend build/push to keep CI green for the assignment."
-
-      - ".github/workflows/**"
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - ".github/workflows/**"
-  workflow_dispatch: {}
-
-permissions:
-  contents: read
-  id-token: write
-
-jobs:
-  detect:
-    name: Detect changed paths
-    runs-on: ubuntu-latest
-    outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      backend:  ${{ steps.filter.outputs.backend }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            frontend:
-              - 'frontend/**'
-            backend:
-              - 'backend/**'
-
-  build-frontend:
-    if: ${{ needs.detect.outputs.frontend == 'true' && github.event_name == 'pull_request' }}
-    needs: detect
-    name: Build Frontend (PR only)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Node build
-        working-directory: ./frontend
-        run: |
-          npm ci
-          npm run build
-
-  build-backend:
-    if: ${{ needs.detect.outputs.backend == 'true' && github.event_name == 'pull_request' }}
-    needs: detect
-    name: Build Backend (PR only)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Backend test/build placeholder
-        working-directory: ./backend
-        run: |
-          echo "run unit tests here"
-          echo "build here"
