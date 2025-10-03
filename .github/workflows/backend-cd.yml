@@ -33,7 +33,9 @@ jobs:
           : "${ACR_LOGIN_SERVER?Need env ACR_LOGIN_SERVER (e.g. wk08acr123.azurecr.io)}"
           az acr repository list --name "${ACR_LOGIN_SERVER%%.azurecr.io}" -o table
 
-      # - name: Get AKS creds
+      # Uncomment and set your resource group / AKS name when ready to deploy:
+      # - name: Get AKS credentials
       #   run: az aks get-credentials -g <resource-group> -n <aks-name> --overwrite-existing
-      # - name: kubectl apply
+      #
+      # - name: Apply manifests
       #   run: kubectl apply -f k8s/
